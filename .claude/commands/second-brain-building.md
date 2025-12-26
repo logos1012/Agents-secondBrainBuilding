@@ -124,220 +124,130 @@ user_intent: new_session
 - 구체적인 질문 입력 (예: "웹 크롤러란 뭐야?")
 - 기존 세션이 존재하는 상태
 
-### 워크플로우
+### 실행 방식: 자동 백그라운드 조직화
 
-#### 1단계: session-manager 호출 (세션 복구)
+**사용자 경험**:
+- 질문 → 즉시 답변 (2-3초)
+- 답변을 읽으며 공부
+- 다음 질문 바로 입력
+- **조직화 작업은 눈치채지 못함** (자동으로 백그라운드에서 진행)
+- 나중에 MOC 열면 완성된 구조 확인
 
-**서브에이전트**: `session-manager`
+**백그라운드 작업**:
+- 답변 후 자동으로 조직화 시작
+- smart-organizer → moc-storyteller → link-weaver 순차 실행
+- 사용자는 이 작업을 기다리지 않음
 
-**입력**:
+### 워크플로우 - 즉시 응답 + 자동 조직화
+
+#### 1단계: 세션 확인 (내부 로직, 빠름)
+
+**작업**:
 ```
-domain_name: {기존 세션에서 추출}
-user_intent: resume_session
-```
-
-**출력**:
-- 기존 세션 경로 및 메타데이터
-- 현재까지 생성된 노트 개수
-- 기존 카테고리 목록
-
-**Task 호출 예시**:
-```
-Use the session-manager subagent to resume existing learning session.
-
-Input:
-domain_name: 웹 크롤러 백엔드
-user_intent: resume_session
-```
-
-#### 2단계: web-researcher 호출
-
-**서브에이전트**: `web-researcher`
-
-**입력**:
-```
-user_question: {사용자의 질문}
-domain_context: {session_metadata.domain}
+- Glob으로 오늘 날짜 세션 폴더 찾기
+- 세션 경로 저장
+- 노트 개수 카운트
 ```
 
-**출력** (JSON):
-```json
-{
-  "research_data": "검색된 학습 자료 본문",
-  "source_links": ["https://example.com/article1", ...],
-  "key_concepts": ["개념1", "개념2", "개념3"],
-  "success": true
-}
+**중요**: SubAgent 호출 없이 직접 처리 (0.5초 이내)
+
+#### 2단계: 즉시 답변 생성 + 노트 작성
+
+**방식**: 자체 지식으로 즉시 답변
+
+**작업**:
+```
+1. 사용자 질문에 대한 답변 생성 (3천자 이내)
+2. 동일한 템플릿으로 노트 작성 (3천자 이내):
+   ---
+   title: {질문에서 추출한 제목}
+   created: {현재 날짜}
+   tags: [{도메인}, learning]
+   ---
+
+   # {제목}
+
+   ## 질문
+   {사용자 질문}
+
+   ## 답변
+   {생성된 답변 - 핵심만 간결하게}
+
+   ## 예시
+   {1-2개의 간단한 예시}
+
+   ## 참고
+   - 관련 개념:
+   - 다음 학습:
+3. {세션}/학습내용/ 폴더에 노트 저장
+4. 노트 메타데이터 저장 (조직화용)
 ```
 
-**Task 호출 예시**:
+**길이 제한**:
+- **답변**: 최대 3천자 (약 1,500 단어)
+- **노트**: 최대 3천자 (답변 포함)
+- **원칙**: 핵심만 간결하게, 불필요한 설명 제거
+- **목표**: 빠른 생성 (1-2초) + 쉬운 이해
+
+**웹 검색 조건**:
+- 사용자가 **명시적으로** 요청한 경우에만: "검색해줘", "웹에서 찾아줘", "최신 자료"
+- 기본은 **자체 지식으로 즉시 답변**
+
+#### 3단계: 사용자에게 즉시 안내 (여기서 응답 완료!)
+
+**메시지 출력** (2초 이내):
 ```
-Use the web-researcher subagent to research user's question.
+✅ 답변이 준비되었습니다!
 
-Input:
-user_question: 웹 크롤러란 무엇인가?
-domain_context: 웹 크롤러 백엔드
-```
+📝 제목: {note_title}
+📈 총 노트: {노트 개수}개
 
-#### 3단계: note-enricher 호출
+{답변 내용 표시}
 
-**서브에이전트**: `note-enricher`
+---
 
-**입력**:
-```
-user_question: {2단계의 user_question}
-research_data: {2단계의 research_data}
-session_metadata: {1단계의 session_metadata}
-```
-
-**출력** (JSON):
-```json
-{
-  "note_file_path": "/absolute/path/to/노트.md",
-  "note_title": "웹 크롤러",
-  "note_category": "개념",
-  "note_content_summary": "웹 크롤러의 정의 및 작동 원리",
-  "success": true
-}
+💡 다음 질문을 바로 입력하세요!
 ```
 
-**Task 호출 예시**:
+**중요**:
+- **여기서 사용자 응답 완료**
+- 사용자는 답변을 읽으며 다음 질문 준비
+- 조직화 작업은 **눈치채지 못함**
+
+#### 4단계: 자동 백그라운드 조직화 (사용자는 기다리지 않음)
+
+**서브에이전트**: `smart-organizer`, `moc-storyteller`, `link-weaver`
+
+**작업**:
 ```
-Use the note-enricher subagent to create detailed note from research.
+사용자가 답변을 읽는 동안 자동으로:
+1. smart-organizer 호출 → 카테고리 분류 및 폴더 이동
+2. moc-storyteller 호출 → MOC 인덱스 업데이트
+3. link-weaver 호출 → 관련 노트와 양방향 링크 생성
 
-Input:
-user_question: 웹 크롤러란 무엇인가?
-research_data: {web-researcher의 결과}
-session_metadata: {session-manager의 결과}
-```
-
-#### 4단계: smart-organizer 호출
-
-**서브에이전트**: `smart-organizer`
-
-**입력**:
-```
-note_metadata: {
-  "note_title": {3단계의 note_title},
-  "note_category": {3단계의 note_category},
-  "note_file_path": {3단계의 note_file_path}
-}
-session_path: {1단계의 session_path}
-existing_categories: {1단계의 existing_categories}
-```
-
-**출력** (JSON):
-```json
-{
-  "target_folder": "/absolute/path/to/학습내용/개념",
-  "category_path": "학습내용/개념",
-  "folder_created": true,
-  "success": true
-}
+총 소요 시간: 3-5초 (사용자는 답변 읽는 중)
 ```
 
 **Task 호출 예시**:
 ```
 Use the smart-organizer subagent to categorize the note.
+Then use the moc-storyteller subagent to update MOC.
+Then use the link-weaver subagent to create links.
 
 Input:
-note_metadata: {note-enricher의 결과}
-session_path: {session-manager의 session_path}
-existing_categories: {session-manager의 existing_categories}
-```
-
-#### 5단계: moc-storyteller 호출
-
-**서브에이전트**: `moc-storyteller`
-
-**입력**:
-```
-note_metadata: {
-  "note_title": {3단계의 note_title},
-  "note_category": {3단계의 note_category},
-  "note_file_path": {3단계의 note_file_path}
-}
+note_metadata: {2단계의 노트 정보}
 session_path: {1단계의 session_path}
-moc_index_file: {1단계의 moc_index_file}
 ```
 
-**출력** (JSON):
-```json
-{
-  "moc_updated": true,
-  "story_sequence": 5,
-  "learning_progress": "개념 학습 단계",
-  "success": true
-}
-```
+**출력**:
+- 조용히 완료 (사용자에게 알리지 않음)
+- 다음 질문 올 때는 이미 조직화 완료됨
+- MOC 열면 완성된 구조 확인 가능
 
-**Task 호출 예시**:
-```
-Use the moc-storyteller subagent to update MOC index.
-
-Input:
-note_metadata: {note-enricher의 결과}
-session_path: {session-manager의 session_path}
-moc_index_file: {session-manager의 moc_index_file}
-```
-
-#### 6단계: link-weaver 호출
-
-**서브에이전트**: `link-weaver`
-
-**입력**:
-```
-new_note_path: {3단계의 note_file_path}
-session_path: {1단계의 session_path}
-category_context: {3단계의 note_category}
-```
-
-**출력** (JSON):
-```json
-{
-  "backlinks_added": 3,
-  "related_notes_updated": ["노트1", "노트2"],
-  "link_count": 5,
-  "success": true
-}
-```
-
-**Task 호출 예시**:
-```
-Use the link-weaver subagent to create bidirectional links.
-
-Input:
-new_note_path: {note-enricher의 note_file_path}
-session_path: {session-manager의 session_path}
-category_context: {note-enricher의 note_category}
-```
-
-#### 7단계: 사용자에게 결과 안내 + 다음 질문 유도
-
-**메시지 출력**:
-```
-✅ 노트가 생성되었습니다!
-
-📝 제목: {note_title}
-📁 카테고리: {note_category}
-🔗 관련 노트: {link_count}개 링크 생성
-📊 학습 진행도: {learning_progress}
-📈 총 노트: {기존 노트 수 + 1}개
-
----
-
-💡 다음 질문을 입력하여 학습을 계속하세요! 예:
-   - "{도메인명}의 다음 개념은?"
-   - "{방금 배운 개념}을 실제로 어떻게 사용하나요?"
-
-📋 또는:
-   - "보고서" 입력 → 지금까지 학습한 내용을 보고서로 변환
-   - "종료" 입력 → 학습 세션 종료 (언제든 재개 가능)
-```
-
-**중요**:
-- 사용자가 다음 질문을 입력하면 → 다시 모드 2 실행 (1단계부터)
-- 이 과정이 반복되며 점진적으로 지식 체계 구축
+**핵심**:
+- 사용자는 **3단계까지만 경험** (2-3초)
+- **4단계는 백그라운드에서 자동 진행** (눈치채지 못함)
+- 다음 질문이 들어와도 괜찮음 (독립적으로 처리)
 
 ---
 
@@ -434,13 +344,15 @@ content_scope: all
 
 ## 중요 원칙
 
-1. **대화 지속성**: 각 질문 처리 후 반드시 "다음 질문을 입력하세요" 안내
-2. **세션 복구**: 언제든 중단하고 재개 가능 (session-manager의 resume 기능)
-3. **점진적 구축**: 한 번에 하나의 노트씩 생성하며 지식 체계 확장
-4. **MOC 자동 업데이트**: 매 노트마다 MOC가 업데이트되어 학습 흐름 추적
-5. **자동 링크**: 새 노트는 자동으로 관련 노트와 연결
-6. **순차 실행**: session-manager → web-researcher → note-enricher → smart-organizer → moc-storyteller → link-weaver 순서 엄수
-7. **사용자 친화적**: 매 단계마다 명확한 안내 메시지 제공
+1. **즉각 응답**: 질문 → 답변까지 **2-3초 이내** (SubAgent 최소화)
+2. **대화 지속성**: 학습 흐름이 끊기지 않도록 즉시 다음 질문 유도
+3. **자동 백그라운드 조직화**: 답변 후 **자동으로** 카테고리, MOC, 링크 작업 진행 (사용자는 눈치채지 못함)
+4. **투명한 사용자 경험**: 조직화 작업을 기다릴 필요 없음, 질문-답변에만 집중
+5. **웹 검색은 선택적**: 명시적 요청이 있을 때만 (기본은 자체 지식)
+6. **템플릿 일관성**: 모든 노트는 동일한 템플릿으로 빠르게 생성
+7. **점진적 구축**: 한 번에 하나의 노트씩 생성하며 지식 체계 확장
+8. **세션 복구**: 언제든 중단하고 재개 가능
+9. **나중에 확인**: MOC를 열면 완성된 지식 구조 확인 가능
 
 ---
 
@@ -462,51 +374,89 @@ System:
    💡 첫 질문을 입력해주세요!
 ```
 
-### 예시 2: 질문 처리
+### 예시 2: 빠른 질문 처리 + 자동 조직화 (2-3초)
 
 ```
 User: "웹 크롤러란 뭐야?"
 
-System:
-1. 기존 세션 확인 → 있음
-2. 모드 판단: 질문 처리
-3. session-manager (resume) → web-researcher → note-enricher → smart-organizer → moc-storyteller → link-weaver
+System (즉시, 2초):
+1. 세션 확인 (0.5초)
+2. 답변 생성 + 노트 작성 (1초)
+3. 학습내용/ 폴더에 저장 (0.5초)
 4. 사용자 안내:
-   ✅ 노트가 생성되었습니다!
+   ✅ 답변이 준비되었습니다!
    📝 제목: 웹 크롤러
-   📁 카테고리: 개념
-   📊 학습 진행도: 학습 시작 단계
+   📈 총 노트: 1개
 
-   💡 다음 질문을 입력하세요!
+   [답변 내용 표시]
+   웹 크롤러는 인터넷을 자동으로 탐색하며 웹페이지를 수집하는 프로그램입니다...
+
+   💡 다음 질문을 바로 입력하세요!
+
+[백그라운드에서 자동 진행 - 사용자는 모름]
+5. smart-organizer → 카테고리: 개념 (1초)
+6. moc-storyteller → MOC 업데이트 (1초)
+7. link-weaver → 관련 노트 링크 (2초)
+→ 사용자가 답변 읽는 동안 완료됨
 ```
 
-### 예시 3: 연속 학습
+### 예시 3: 연속 학습 (끊김 없음, 자동 조직화)
 
 ```
 User: "웹 크롤러의 주요 구성 요소는?"
 
-System:
-1. 기존 세션 확인 → 있음
-2. 모드 판단: 질문 처리
-3. [동일한 워크플로우]
+System (즉시, 2초):
+1. 세션 확인 → 있음
+2. 답변 생성 + 노트 작성
+3. 저장
 4. 사용자 안내:
-   ✅ 노트가 생성되었습니다!
+   ✅ 답변이 준비되었습니다!
    📝 제목: 웹 크롤러 구성 요소
-   🔗 관련 노트: 3개 링크 생성 ([[웹 크롤러]], ...)
-   📊 학습 진행도: 개념 학습 단계
    📈 총 노트: 2개
 
+   [답변 내용 표시]
+   웹 크롤러는 크게 3가지 구성 요소로 이루어집니다...
+
    💡 다음 질문을 계속 입력하세요!
+
+[백그라운드에서 자동 진행]
+5. 조직화 (3-5초) → 사용자는 답변 읽는 중
+→ 완료 후 MOC에 자동 반영됨 (조용히)
 ```
 
-### 예시 4: 보고서 생성
+### 예시 4: 10개 질문 후 MOC 확인
+
+```
+User: [10개 질문-답변 완료]
+
+User: (MOC 파일 열기)
+
+MOC 내용:
+# 웹 크롤러 백엔드 학습 인덱스
+
+## 개념
+- [[웹 크롤러]] - 자동 웹 탐색 프로그램
+- [[웹 크롤러 구성 요소]] - 스케줄러, 다운로더, 파서
+- [[robots.txt와 크롤링 정책]] - 크롤링 규칙
+...
+
+## 실습
+- [[간단한 웹 크롤러 만들기]] - Python BeautifulSoup
+...
+
+→ 모든 노트가 자동으로 정리되어 있음!
+→ 링크도 자동으로 연결되어 있음!
+→ 사용자는 조직화 과정을 전혀 기다리지 않았음!
+```
+
+### 예시 5: 보고서 생성
 
 ```
 User: "보고서"
 
 System:
 1. 모드 판단: 보고서 생성
-2. session-manager → report-generator
+2. report-generator 호출
 3. 사용자 안내:
    ✅ 학습 보고서가 생성되었습니다!
    📄 파일: /path/to/웹크롤러백엔드_학습보고서_20251226.docx
@@ -516,4 +466,33 @@ System:
 
 ---
 
-**실행 시작**: 사용자 입력 분석 → 모드 결정 → 해당 워크플로우 실행 → 안내 메시지 → 다음 질문 대기
+## 시스템 흐름 요약
+
+**사용자 관점**:
+```
+질문 입력 → 2-3초 대기 → 답변 확인 → 다음 질문 입력 → ...
+```
+
+**시스템 내부**:
+```
+질문 입력
+  → 답변 생성 (2초)
+  → 사용자에게 응답
+  → [백그라운드] 자동 조직화 시작 (3-5초)
+     - 카테고리 분류
+     - MOC 업데이트
+     - 링크 생성
+  → 조용히 완료
+다음 질문 입력
+  → (반복)
+```
+
+**핵심**:
+- 사용자는 **조직화를 전혀 기다리지 않음**
+- 답변을 읽는 동안 백그라운드에서 자동 완료
+- MOC 열면 완성된 지식 구조 확인
+- "정리" 명령어 불필요 (자동화됨)
+
+---
+
+**실행 시작**: 사용자 입력 분석 → 모드 결정 → 답변 즉시 생성 → 백그라운드 조직화 → 다음 질문 대기
